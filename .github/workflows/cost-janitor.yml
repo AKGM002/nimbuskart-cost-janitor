@@ -1,0 +1,77 @@
+name: Cost Janitor Cost Hygiene Enforcement
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  cost-hygiene-scan:
+    runs-on: ubuntu-latest
+
+    # Service container setup allows running LocalStack directly inside the runner network context
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+          - 4510-4559:4510-4559
+        env:
+          # Tells LocalStack unified image to skip license validation gate inside standard PR environment
+          LOCALSTACK_ACKNOWLEDGE_ACCOUNT_REQUIREMENT: "1"
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Set Up Python Runtime
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r janitor/requirements.txt
+        pip install terraform-local
+
+    - name: Setup Terraform Binary
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.0
+
+    - name: Initialize and Apply Terraform Baseline
+      run: |
+        cd terraform
+        tflocal init
+        tflocal apply -auto-approve
+
+    - name: Execute Cost Janitor Core Audit
+      id: run_janitor
+      continue-on-error: true # Prevents step exit block from killing runner before upload phase
+      run: |
+        python janitor/janitor.py --dry-run
+        echo "JANITOR_EXIT_CODE=$?" >> $GITHUB_ENV
+
+    - name: Upload Clean-up Audit Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cost-hygiene-reports
+        path: |
+          report.json
+          report.md
+
+    - name: Publish Markdown Summary Report to Pull Request
+      if: env.JANITOR_EXIT_CODE != '0'
+      uses: marooned/comment-on-pr@v1.3.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        file_path: "report.md"
+
+    - name: Enforce Branch Rules Post Execution
+      run: |
+        if [ "${{ env.JANITOR_EXIT_CODE }}" != "0" ]; then
+          echo "Orphaned or misconfigured infrastructure resources detected! Please fix prior to merge."
+          exit 1
+        fi
