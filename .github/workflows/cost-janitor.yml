@@ -1,8 +1,12 @@
 name: Cost Janitor Cost Hygiene Enforcement
 
 on:
+  push:
+    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch: # Allows you to click a "Run Workflow" button manually in the browser UI
+
 
 jobs:
   cost-hygiene-scan:
