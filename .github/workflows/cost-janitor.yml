@@ -1,28 +1,18 @@
 name: Cost Janitor Cost Hygiene Enforcement
 
 on:
-  push:
-    branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch: # Allows you to click a "Run Workflow" button manually in the browser UI
-
 
 jobs:
   cost-hygiene-scan:
     runs-on: ubuntu-latest
 
-    # Service container setup allows running LocalStack directly inside the runner network context
     services:
       localstack:
-        # FIX: Pin to the lightweight community fallback edition for stable CI executions
         image: localstack/localstack:4.4.0
         ports:
           - 4566:4566
-          - 4510-4559:4510-4559
-        env:
-          # Tells LocalStack unified image to skip license validation gate inside standard PR environment
-          LOCALSTACK_ACKNOWLEDGE_ACCOUNT_REQUIREMENT: "1"
 
     steps:
     - name: Checkout Source Code
@@ -53,7 +43,7 @@ jobs:
 
     - name: Execute Cost Janitor Core Audit
       id: run_janitor
-      continue-on-error: true # Prevents step exit block from killing runner before upload phase
+      continue-on-error: true
       run: |
         python janitor/janitor.py --dry-run
         echo "JANITOR_EXIT_CODE=$?" >> $GITHUB_ENV
@@ -67,22 +57,18 @@ jobs:
           report.md
 
     - name: Publish Markdown Summary Report to Pull Request
-      if: env.JANITOR_EXIT_CODE != '0' && github.event_name == 'pull_request'
+      if: env.JANITOR_EXIT_CODE != '0'
       run: |
-        # Read your generated markdown file into a secure environment variable
         PR_COMMENT=$(cat report.md)
-        
-        # Use native curl to post the comment safely using the built-in system token
         curl -s -X POST \
           -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
           -H "Accept: application/vnd.github+json" \
           https://github.com{{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
           -d "$(jq -n --arg body "$PR_COMMENT" '{body: $body}')"
 
-
     - name: Enforce Branch Rules Post Execution
       run: |
         if [ "${{ env.JANITOR_EXIT_CODE }}" != "0" ]; then
-          echo "Orphaned or misconfigured infrastructure resources detected! Please fix prior to merge."
+          echo "❌ Orphaned infrastructure resources detected! Please fix prior to merge."
           exit 1
         fi
