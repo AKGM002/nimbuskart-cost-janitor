@@ -15,7 +15,8 @@ jobs:
     # Service container setup allows running LocalStack directly inside the runner network context
     services:
       localstack:
-        image: localstack/localstack:latest
+        # FIX: Pin to the lightweight community fallback edition for stable CI executions
+        image: localstack/localstack:4.4.0
         ports:
           - 4566:4566
           - 4510-4559:4510-4559
