@@ -66,12 +66,18 @@ jobs:
           report.md
 
     - name: Publish Markdown Summary Report to Pull Request
-      if: env.JANITOR_EXIT_CODE != '0'
-      uses: marooned/comment-on-pr@v1.3.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        file_path: "report.md"
+      if: env.JANITOR_EXIT_CODE != '0' && github.event_name == 'pull_request'
+      run: |
+        # Read your generated markdown file into a secure environment variable
+        PR_COMMENT=$(cat report.md)
+        
+        # Use native curl to post the comment safely using the built-in system token
+        curl -s -X POST \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github+json" \
+          https://github.com{{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+          -d "$(jq -n --arg body "$PR_COMMENT" '{body: $body}')"
+
 
     - name: Enforce Branch Rules Post Execution
       run: |
